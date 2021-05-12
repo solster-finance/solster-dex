@@ -37,8 +37,7 @@ async function main() {
     toMint: WBTC,
     amount: toNative(1),
   });
-		console.log('estimate', estimatedBtc.toNumber());
-/*
+
   // Swaps SRM -> USDC on the Serum orderbook. If the resulting USDC is
   // has greater than a 1% error from the estimate, then fails.
   const usdcSwapTx = await client.swap({
@@ -47,6 +46,10 @@ async function main() {
     amount: toNative(1),
     minExpectedSwapAmount: estimatedUsdc.mul(new BN(99)).div(new BN(100)),
   });
+
+/*
+		console.log('estimated usdc', estimatedUsdc.toNumber()/10**6);
+		console.log('estimate', estimatedBtc.toNumber());
 
   // Uses the default minExpectedSwapAmount calculation.
   const usdcSwapTxDefault = await client.swap({

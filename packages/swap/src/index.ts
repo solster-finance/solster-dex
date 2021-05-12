@@ -364,7 +364,7 @@ export class Swap {
     const { fromMint, toMint } = params;
     const tx = new Transaction();
     if (fromMint.equals(USDC_PUBKEY) || fromMint.equals(USDT_PUBKEY)) {
-      const marketAddress = await this.swapMarkets.getMarketAddress(
+      const marketAddress = this.swapMarkets.getMarketAddress(
         fromMint,
         toMint,
       );
@@ -389,7 +389,7 @@ export class Swap {
         }),
       );
     } else if (toMint.equals(USDC_PUBKEY) || toMint.equals(USDT_PUBKEY)) {
-      const marketAddress = await this.swapMarkets.getMarketAddress(
+      const marketAddress = this.swapMarkets.getMarketAddress(
         toMint,
         fromMint,
       );
@@ -419,14 +419,13 @@ export class Swap {
       ): Promise<Array<TransactionInstruction>> => {
         // Instructions and signers to build.
         const ixs: Array<TransactionInstruction> = [];
-        const sigs: Array<Account> = [];
 
         // Markets.
-        const marketFrom = await this.swapMarkets.getMarketAddress(
+        const marketFrom = this.swapMarkets.getMarketAddress(
           usdx,
           fromMint,
         );
-        const marketTo = await this.swapMarkets.getMarketAddress(usdx, toMint);
+        const marketTo = this.swapMarkets.getMarketAddress(usdx, toMint);
 
         // Open orders accounts (already existing).
         const ooAccsFrom = await OpenOrders.findForMarketAndOwner(
@@ -826,42 +825,35 @@ export class Swap {
     const ixs: TransactionInstruction[] = [];
     const signers: Account[] = [];
 
-    // Add instruction to batch create all open orders accounts, if needed.
+    // Add instructions to open orders accounts, if needed.
     let accounts: Account[] = [];
-    if (fromNeedsOpenOrders || true) {
+    if (fromNeedsOpenOrders) {
       const oo = new Account();
       signers.push(oo);
-      accounts.push(oo);
-    }
-    if (toNeedsOpenOrders || true) {
-      const oo = new Account();
-      signers.push(oo);
-      accounts.push(oo);
-    }
-    if (fromNeedsOpenOrders || toNeedsOpenOrders || true) {
-      let remainingAccounts = accounts.map((a) => {
-        return {
-          pubkey: a.publicKey,
-          isSigner: true,
-          isWritable: true,
-        };
-      });
-      const openOrdersSize = 200;
-      const lamports = new BN(
-        await this.program.provider.connection.getMinimumBalanceForRentExemption(
-          openOrdersSize,
+			accounts.push(oo);
+      ixs.push(
+        await OpenOrders.makeCreateAccountTransaction(
+          this.program.provider.connection,
+          fromMarket,
+          this.program.provider.wallet.publicKey,
+          oo.publicKey,
+          DEX_PID,
         ),
       );
-      // ixs.push(
-      // 	this.createAccountsProgram.instruction.createAccounts({
-      // 		accounts: {
-      // 			funding: this.program.provider.wallet.publicKey,
-      // 			owner: DEX_PID,
-      // 			systemProgram: SystemProgram.programId,
-      // 		},
-      // 		remainingAccounts,
-      // 	}),
-      // );
+    }
+    if (toNeedsOpenOrders) {
+      const oo = new Account();
+      signers.push(oo);
+			accounts.push(oo);
+      ixs.push(
+        await OpenOrders.makeCreateAccountTransaction(
+          this.program.provider.connection,
+          toMarket,
+          this.program.provider.wallet.publicKey,
+          oo.publicKey,
+          DEX_PID,
+        ),
+      );
     }
 
     ixs.push(
