@@ -121,4 +121,22 @@ export default class SwapMarkets {
       .filter((t) => t.extensions?.serumV3Usdc !== undefined)[0];
     return fromMarket !== undefined && toMarket !== undefined;
   }
+
+  public route(fromMint: PublicKey, toMint: PublicKey): PublicKey[] {
+    if (fromMint.equals(USDC_PUBKEY) || fromMint.equals(USDT_PUBKEY)) {
+      return [this.getMarketAddress(fromMint, toMint)];
+    } else if (toMint.equals(USDC_PUBKEY) || toMint.equals(USDT_PUBKEY)) {
+      return [this.getMarketAddress(toMint, fromMint)];
+    } else {
+      let fromMarket: PublicKey, toMarket: PublicKey;
+      try {
+        fromMarket = this.getMarketAddress(USDC_PUBKEY, fromMint);
+        toMarket = this.getMarketAddress(USDC_PUBKEY, toMint);
+      } catch (err) {
+        fromMarket = this.getMarketAddress(USDT_PUBKEY, fromMint);
+        toMarket = this.getMarketAddress(USDT_PUBKEY, toMint);
+      }
+      return [fromMarket, toMarket];
+    }
+  }
 }
