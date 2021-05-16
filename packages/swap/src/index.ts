@@ -184,7 +184,7 @@ export class Swap {
   /**
    * Returns a list of markets to trade across to swap `fromMint` to `toMint`.
    */
-  public route(fromMint: PublicKey, toMint: PublicKey): PublicKey[] {
+  public route(fromMint: PublicKey, toMint: PublicKey): PublicKey[] | null {
     return this.swapMarkets.route(fromMint, toMint);
   }
 
@@ -272,11 +272,14 @@ export class Swap {
         const sigs: Array<Account> = [];
 
         // Markets.
-        const marketFrom = this.swapMarkets.getMarketAddress(
-          usdx,
-          fromMint,
-        );
+        const marketFrom = this.swapMarkets.getMarketAddress(usdx, fromMint);
+        if (marketFrom === null) {
+          throw new Error('Invalid market');
+        }
         const marketTo = this.swapMarkets.getMarketAddress(usdx, toMint);
+        if (marketTo === null) {
+          throw new Error('Invalid market');
+        }
 
         // Open orders accounts (already existing).
         const ooAccsFrom = await OpenOrders.findForMarketAndOwner(
@@ -383,6 +386,9 @@ export class Swap {
     const tx = new Transaction();
     if (fromMint.equals(USDC_PUBKEY) || fromMint.equals(USDT_PUBKEY)) {
       const marketAddress = this.swapMarkets.getMarketAddress(fromMint, toMint);
+      if (marketAddress == null) {
+        throw new Error('Invalid market');
+      }
       const ooAccounts = await OpenOrders.findForMarketAndOwner(
         this.program.provider.connection,
         marketAddress,
@@ -404,10 +410,10 @@ export class Swap {
         }),
       );
     } else if (toMint.equals(USDC_PUBKEY) || toMint.equals(USDT_PUBKEY)) {
-      const marketAddress = this.swapMarkets.getMarketAddress(
-        toMint,
-        fromMint,
-      );
+      const marketAddress = this.swapMarkets.getMarketAddress(toMint, fromMint);
+      if (marketAddress == null) {
+        throw new Error('Invalid market');
+      }
       const ooAccounts = await OpenOrders.findForMarketAndOwner(
         this.program.provider.connection,
         marketAddress,
@@ -437,7 +443,13 @@ export class Swap {
 
         // Markets.
         const marketFrom = this.swapMarkets.getMarketAddress(usdx, fromMint);
+        if (marketFrom == null) {
+          throw new Error('Invalid market');
+        }
         const marketTo = this.swapMarkets.getMarketAddress(usdx, toMint);
+        if (marketTo == null) {
+          throw new Error('Invalid market');
+        }
 
         // Open orders accounts (already existing).
         const ooAccsFrom = await OpenOrders.findForMarketAndOwner(
@@ -568,14 +580,14 @@ export class Swap {
       quoteWallet,
       fromWallet,
       toWallet,
-			fromMarket,
-			toMarket,
+      fromMarket,
+      toMarket,
       amount,
       minExpectedSwapAmount,
       referral,
-			close,
-			fromOpenOrders,
-			toOpenOrders,
+      close,
+      fromOpenOrders,
+      toOpenOrders,
     } = params;
 
     // Defaults to .5% error off the estimate, if not provided.
@@ -614,9 +626,9 @@ export class Swap {
         amount,
         minExpectedSwapAmount,
         referral,
-				close,
-				fromMarket,
-				fromOpenOrders,
+        close,
+        fromMarket,
+        fromOpenOrders,
       });
     } else if (toMint.equals(USDC_PUBKEY) || toMint.equals(USDT_PUBKEY)) {
       return await this.swapDirectIxs({
@@ -628,9 +640,23 @@ export class Swap {
         amount,
         minExpectedSwapAmount,
         referral,
-				close,
-				fromMarket,
-				fromOpenOrders,
+        close,
+        fromMarket,
+        fromOpenOrders,
+      });
+    } else if (fromMarket !== undefined && toMarket === undefined) {
+      return await this.swapDirectIxs({
+        coinWallet: fromWallet,
+        pcWallet: toWallet,
+        baseMint: fromMint,
+        quoteMint: toMint,
+        side: fromMint.equals(fromMarket.baseMintAddress) ? Side.Ask : Side.Bid,
+        amount,
+        minExpectedSwapAmount,
+        referral,
+        close,
+        fromMarket,
+        fromOpenOrders,
       });
     }
 
@@ -661,11 +687,11 @@ export class Swap {
       amount,
       minExpectedSwapAmount,
       referral,
-			close,
-			fromMarket,
-			toMarket,
-			fromOpenOrders,
-			toOpenOrders,
+      close,
+      fromMarket,
+      toMarket,
+      fromOpenOrders,
+      toOpenOrders,
     });
   }
 
@@ -678,9 +704,9 @@ export class Swap {
     amount,
     minExpectedSwapAmount,
     referral,
-		close,
-		fromMarket,
-		fromOpenOrders,
+    close,
+    fromMarket,
+    fromOpenOrders,
   }: {
     coinWallet: PublicKey;
     pcWallet: PublicKey;
@@ -690,33 +716,42 @@ export class Swap {
     amount: BN;
     minExpectedSwapAmount: BN;
     referral?: PublicKey;
-		close?: boolean;
-		fromMarket?: Market;
-		fromOpenOrders?: PublicKey;
+    close?: boolean;
+    fromMarket?: Market;
+    fromOpenOrders?: PublicKey;
   }): Promise<[TransactionInstruction[], Account[]]> {
-    const marketClient = fromMarket ? fromMarket : await Market.load(
-      this.program.provider.connection,
-      this.swapMarkets.getMarketAddress(quoteMint, baseMint),
-      this.program.provider.opts,
-      DEX_PID,
+    const marketAddress = this.swapMarkets.getMarketAddress(
+      quoteMint,
+      baseMint,
     );
+    if (marketAddress === null) {
+      throw new Error('Invalid market');
+    }
+    const marketClient = fromMarket
+      ? fromMarket
+      : await Market.load(
+          this.program.provider.connection,
+          marketAddress,
+          this.program.provider.opts,
+          DEX_PID,
+        );
     const [vaultSigner] = await getVaultOwnerAndNonce(marketClient.address);
-		let openOrders: PublicKey | undefined;
-		if (fromOpenOrders) {
-			openOrders = fromOpenOrders;
-		} else {
-			openOrders = await (async () => {
-				let openOrders = await OpenOrders.findForMarketAndOwner(
-					this.program.provider.connection,
-					marketClient.address,
-					this.program.provider.wallet.publicKey,
-					DEX_PID,
-				);
-				// If we have an open orders account use it. It doesn't matter which
-				// one we use.
-				return openOrders[0] ? openOrders[0].address : undefined;
-			})();
-		}
+    let openOrders: PublicKey | undefined;
+    if (fromOpenOrders) {
+      openOrders = fromOpenOrders;
+    } else {
+      openOrders = await (async () => {
+        let openOrders = await OpenOrders.findForMarketAndOwner(
+          this.program.provider.connection,
+          marketClient.address,
+          this.program.provider.wallet.publicKey,
+          DEX_PID,
+        );
+        // If we have an open orders account use it. It doesn't matter which
+        // one we use.
+        return openOrders[0] ? openOrders[0].address : undefined;
+      })();
+    }
     const needsOpenOrders = openOrders === undefined;
 
     const ixs: TransactionInstruction[] = [];
@@ -795,11 +830,11 @@ export class Swap {
     amount,
     minExpectedSwapAmount,
     referral,
-		close,
-		fromMarket,
-		toMarket,
-		fromOpenOrders,
-		toOpenOrders,
+    close,
+    fromMarket,
+    toMarket,
+    fromOpenOrders,
+    toOpenOrders,
   }: {
     fromMint: PublicKey;
     toMint: PublicKey;
@@ -809,75 +844,95 @@ export class Swap {
     amount: BN;
     minExpectedSwapAmount: BN;
     referral?: PublicKey;
-		close?: boolean;
-		fromMarket?: Market;
-		toMarket?: Market;
-		fromOpenOrders?: PublicKey;
-		toOpenOrders?: PublicKey;
+    close?: boolean;
+    fromMarket?: Market;
+    toMarket?: Market;
+    fromOpenOrders?: PublicKey;
+    toOpenOrders?: PublicKey;
   }): Promise<[TransactionInstruction[], Account[]]> {
-		// Fetch the markets, if needed.
+    // Fetch the markets, if needed.
     let fromMarketAddress: PublicKey, toMarketAddress: PublicKey;
-		let fromMarketClient: Market, toMarketClient: Market;
-		if (fromMarket) {
-			fromMarketAddress = fromMarket.address;
-			fromMarketClient = fromMarket;
-		} else {
-			try {
-				fromMarketAddress = this.swapMarkets.getMarketAddress(USDC_PUBKEY, fromMint);
-			} catch (err) {
-				fromMarketAddress = this.swapMarkets.getMarketAddress(USDT_PUBKEY, fromMint);
-			}
-			fromMarketClient = await Market.load(
+    let fromMarketClient: Market, toMarketClient: Market;
+    if (fromMarket) {
+      fromMarketAddress = fromMarket.address;
+      fromMarketClient = fromMarket;
+    } else {
+      let fromMarketAddressMaybe = this.swapMarkets.getMarketAddress(
+        USDC_PUBKEY,
+        fromMint,
+      );
+      if (fromMarketAddressMaybe === null) {
+        fromMarketAddressMaybe = this.swapMarkets.getMarketAddress(
+          USDT_PUBKEY,
+          fromMint,
+        );
+        if (fromMarketAddressMaybe === null) {
+          throw new Error('Invalid market');
+        }
+      }
+      fromMarketAddress = fromMarketAddressMaybe;
+
+      fromMarketClient = await Market.load(
         this.program.provider.connection,
         fromMarketAddress,
         this.program.provider.opts,
         DEX_PID,
       );
-		}
-		if (toMarket) {
-			toMarketAddress = toMarket.address;
-			toMarketClient = toMarket;
-		} else {
-			try {
-				toMarketAddress = this.swapMarkets.getMarketAddress(USDC_PUBKEY, toMint);
-			} catch (err) {
-				toMarketAddress = this.swapMarkets.getMarketAddress(USDT_PUBKEY, toMint);
-			}
-			toMarketClient = await Market.load(
+    }
+    if (toMarket) {
+      toMarketAddress = toMarket.address;
+      toMarketClient = toMarket;
+    } else {
+      let toMarketAddressMaybe = this.swapMarkets.getMarketAddress(
+        USDC_PUBKEY,
+        toMint,
+      );
+      if (toMarketAddressMaybe === null) {
+        toMarketAddressMaybe = this.swapMarkets.getMarketAddress(
+          USDT_PUBKEY,
+          toMint,
+        );
+        if (toMarketAddressMaybe === null) {
+          throw new Error('Invalid market');
+        }
+      }
+      toMarketAddress = toMarketAddressMaybe;
+
+      toMarketClient = await Market.load(
         this.program.provider.connection,
         toMarketAddress,
         this.program.provider.opts,
         DEX_PID,
       );
-		}
-		// Fetch the open orders accounts, if needed.
-		if (!fromOpenOrders) {
-			const acc = await OpenOrders.findForMarketAndOwner(
+    }
+    // Fetch the open orders accounts, if needed.
+    if (!fromOpenOrders) {
+      const acc = await OpenOrders.findForMarketAndOwner(
         this.program.provider.connection,
         fromMarketClient.address,
         this.program.provider.wallet.publicKey,
         DEX_PID,
       )[0];
-			fromOpenOrders = acc ? acc.address : undefined;
-		}
-		if (!toOpenOrders) {
-			const acc = await OpenOrders.findForMarketAndOwner(
+      fromOpenOrders = acc ? acc.address : undefined;
+    }
+    if (!toOpenOrders) {
+      const acc = await OpenOrders.findForMarketAndOwner(
         this.program.provider.connection,
         toMarketClient.address,
         this.program.provider.wallet.publicKey,
         DEX_PID,
       )[0];
-			toOpenOrders = acc ? acc.address : undefined;
-		}
-		// If the open orders are still undefined, then they don't exist.
+      toOpenOrders = acc ? acc.address : undefined;
+    }
+    // If the open orders are still undefined, then they don't exist.
     const fromNeedsOpenOrders = fromOpenOrders === undefined;
     const toNeedsOpenOrders = toOpenOrders === undefined;
 
-		// Now that we have all the accounts, build the transaction.
+    // Now that we have all the accounts, build the transaction.
     const ixs: TransactionInstruction[] = [];
     const signers: Account[] = [];
 
-		// Calculate the vault signers for each market.
+    // Calculate the vault signers for each market.
     const [fromVaultSigner] = await getVaultOwnerAndNonce(
       fromMarketClient.address,
     );
@@ -898,7 +953,7 @@ export class Swap {
           DEX_PID,
         ),
       );
-			fromOpenOrders = oo.publicKey;
+      fromOpenOrders = oo.publicKey;
     }
     if (toNeedsOpenOrders) {
       const oo = new Account();
@@ -913,7 +968,7 @@ export class Swap {
           DEX_PID,
         ),
       );
-			toOpenOrders = oo.publicKey;
+      toOpenOrders = oo.publicKey;
     }
 
     ixs.push(
@@ -963,9 +1018,9 @@ export class Swap {
       }),
     );
 
-		if (CLOSE_ENABLED && close && fromNeedsOpenOrders) {
-			ixs.push(
-				this.program.instruction.closeAccount({
+    if (CLOSE_ENABLED && close && fromNeedsOpenOrders) {
+      ixs.push(
+        this.program.instruction.closeAccount({
           accounts: {
             openOrders: fromOpenOrders,
             authority: this.program.provider.wallet.publicKey,
@@ -973,13 +1028,13 @@ export class Swap {
             market: fromMarketClient.address,
             dexProgram: DEX_PID,
           },
-				})
-			);
-		}
+        }),
+      );
+    }
 
-		if (CLOSE_ENABLED && close && toNeedsOpenOrders) {
-			ixs.push(
-				this.program.instruction.closeAccount({
+    if (CLOSE_ENABLED && close && toNeedsOpenOrders) {
+      ixs.push(
+        this.program.instruction.closeAccount({
           accounts: {
             openOrders: toOpenOrders,
             authority: this.program.provider.wallet.publicKey,
@@ -987,9 +1042,9 @@ export class Swap {
             market: toMarketClient.address,
             dexProgram: DEX_PID,
           },
-				})
-			);
-		}
+        }),
+      );
+    }
 
     return [ixs, signers];
   }
@@ -1075,39 +1130,39 @@ export type SwapParams = {
    */
   toWallet?: PublicKey;
 
-	/**
-	 * Market client for the first leg of the swap. Can be given to prevent
-	 * the client from making unnecessary network requests.
-	 */
-	fromMarket?: Market;
+  /**
+   * Market client for the first leg of the swap. Can be given to prevent
+   * the client from making unnecessary network requests.
+   */
+  fromMarket?: Market;
 
-	/**
-	 * Market client for the second leg of the swap. Can be given to prevent
-	 * the client from making unnecessary network requests.
-	 */
-	toMarket?: Market;
+  /**
+   * Market client for the second leg of the swap. Can be given to prevent
+   * the client from making unnecessary network requests.
+   */
+  toMarket?: Market;
 
-	/**
-	 * Open orders account for the first leg of the swap. Can be given to prevent
-	 * the client from making unnecessary network requests.
-	 */
-	fromOpenOrders?: PublicKey;
+  /**
+   * Open orders account for the first leg of the swap. Can be given to prevent
+   * the client from making unnecessary network requests.
+   */
+  fromOpenOrders?: PublicKey;
 
-	/**
-	 * Open orders account for the second leg of the swap. Can be given to prevent
-	 * the client from making unnecessary network requests.
-	 */
-	toOpenOrders?: PublicKey;
+  /**
+   * Open orders account for the second leg of the swap. Can be given to prevent
+   * the client from making unnecessary network requests.
+   */
+  toOpenOrders?: PublicKey;
 
   /**
    * RPC options. If not given the options on the program's provider are used.
    */
   options?: ConfirmOptions;
 
-	/**
-	 * True if all new open orders accounts should be automatically closed.
-	 */
-	close?: boolean;
+  /**
+   * True if all new open orders accounts should be automatically closed.
+   */
+  close?: boolean;
 };
 
 export type EstimateSwapParams = SwapParams;
