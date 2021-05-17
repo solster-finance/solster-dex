@@ -720,7 +720,7 @@ export class Swap {
     fromMarket?: Market;
     fromOpenOrders?: PublicKey;
   }): Promise<[TransactionInstruction[], Account[]]> {
-    const marketAddress = this.swapMarkets.getMarketAddress(
+    const marketAddress = fromMarket ? fromMarket.address : this.swapMarkets.getMarketAddress(
       quoteMint,
       baseMint,
     );
