@@ -720,10 +720,9 @@ export class Swap {
     fromMarket?: Market;
     fromOpenOrders?: PublicKey;
   }): Promise<[TransactionInstruction[], Account[]]> {
-    const marketAddress = fromMarket ? fromMarket.address : this.swapMarkets.getMarketAddress(
-      quoteMint,
-      baseMint,
-    );
+    const marketAddress = fromMarket
+      ? fromMarket.address
+      : this.swapMarkets.getMarketAddress(quoteMint, baseMint);
     if (marketAddress === null) {
       throw new Error('Invalid market');
     }
@@ -798,7 +797,9 @@ export class Swap {
           tokenProgram: TOKEN_PROGRAM_ID,
           rent: SYSVAR_RENT_PUBKEY,
         },
-        remainingAccounts: referral && [referral],
+        remainingAccounts: referral && [
+          { pubkey: referral, isWritable: true, isSigner: false },
+        ],
       }),
     );
 
@@ -1014,7 +1015,9 @@ export class Swap {
           tokenProgram: TOKEN_PROGRAM_ID,
           rent: SYSVAR_RENT_PUBKEY,
         },
-        remainingAccounts: referral && [referral],
+        remainingAccounts: referral && [
+          { pubkey: referral, isWritable: true, isSigner: false },
+        ],
       }),
     );
 
