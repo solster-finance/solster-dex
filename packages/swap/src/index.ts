@@ -513,6 +513,16 @@ export class Swap {
     const toNeedsOpenOrders = toOpenOrders === undefined;
 
     // Now that we have all the accounts, build the transaction.
+    //
+    // In the event the transaction would be over the transaction size limit,
+    // we break up the transaction into multiple and use `Provider.sendAll`
+    // as a workaround, providing a single user flow for the swap action.
+    //
+    // Alternatively, one could breakup the different actions here into explicit
+    // user flows. I.e., three separate flows for creating open orders
+    // counts, swapping, and closing open orders accounts. If choosing to do
+    // this, it's recommended to use the anchor generated client directly,
+    // instead of the client here.
     let openOrdersTransaction: Transaction | undefined = undefined;
     const openOrdersSigners: Account[] = [];
     const swapTransaction: Transaction = new Transaction();
