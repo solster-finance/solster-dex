@@ -7,11 +7,7 @@ import {
 } from '@solana/web3.js';
 import { Program, Provider } from '@project-serum/anchor';
 import { TokenListContainer } from '@solana/spl-token-registry';
-import {
-  Account,
-  TransactionInstruction,
-  ConfirmOptions,
-} from '@solana/web3.js';
+import { Account, ConfirmOptions } from '@solana/web3.js';
 import {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -62,6 +58,7 @@ const OPEN_ENABLED = false;
  *   fromMint,
  *   toMint,
  *   amount,
+ *   minExchangeRate,
  * });
  * ```
  *
@@ -542,7 +539,6 @@ export class Swap {
     // split out the create open orders instructions into their own transaction.
     if (fromNeedsOpenOrders && toNeedsOpenOrders) {
       openOrdersTransaction = new Transaction();
-
       const ooFrom = new Account();
       openOrdersSigners.push(ooFrom);
       openOrdersTransaction.add(
@@ -770,25 +766,29 @@ export type SwapParams = {
 
   /**
    * Market client for the first leg of the swap. Can be given to prevent
-   * the client from making unnecessary network requests.
+   * the client from making unnecessary network requests. It's recommended
+   * to use this in most cases.
    */
   fromMarket?: Market;
 
   /**
    * Market client for the second leg of the swap. Can be given to prevent
-   * the client from making unnecessary network requests.
+   * the client from making unnecessary network requests. It's recommended
+   * to use this in most cases.
    */
   toMarket?: Market;
 
   /**
    * Open orders account for the first leg of the swap. Can be given to prevent
-   * the client from making unnecessary network requests.
+   * the client from making unnecessary network requests. It's recommended
+   * to use this in most cases.
    */
   fromOpenOrders?: PublicKey;
 
   /**
    * Open orders account for the second leg of the swap. Can be given to prevent
-   * the client from making unnecessary network requests.
+   * the client from making unnecessary network requests. It's recommended
+   * to use this in most cases.
    */
   toOpenOrders?: PublicKey;
 
