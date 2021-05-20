@@ -39,8 +39,8 @@ const CLOSE_ENABLED = false;
  *
  * A module to swap tokens across USD(x) quoted markets on the Serum DEX,
  * providing a thin wrapper around an
- * [Anchor](https://github.com/project-serum/anchor) generated client in an
- * attempt to abstract away orderbook details.
+ * [Anchor](https://github.com/project-serum/anchor) for the sole purpose of
+ * providing a simplified `swap` API.
  *
  * ## Usage
  *
@@ -48,18 +48,6 @@ const CLOSE_ENABLED = false;
  *
  * ```javascript
  * const client = new Swap(provider, tokenList)
- * ```
- *
- * ### List all token mints to swap
- *
- * ```javascript
- * const tokens = client.tokens();
- * ```
- *
- * ### Get all candidate swap pairs for a given token mint
- *
- * ```javascript
- * const swappableTokens = client.pairs(usdcPublicKey);
  * ```
  *
  * ### Swap one token for another.
@@ -113,20 +101,14 @@ const CLOSE_ENABLED = false;
  * ### Creating Open Orders Accounts
  *
  * When the wallet doesn't have an open orders account already created,
- * the swap client provides two choices.
- *
- * 1. Explicitly open (and close) the open
- *    orders account explicitly via the [[initAccounts]]
- *    (and [[closeAccounts]]) methods.
- * 2. Automatically create the required accounts by preloading the instructions
- *    in the [[swap]] transaction.
+ * the swap client provides two choices. Automatically create the required
+ * accounts by preloading the instructions in the [[swap]] transaction.
  *
  * Note that if the user is swapping between two non-USD(x) tokens, e.g., wBTC
  * for wETH, then the user needs *two* open orders accounts on both wBTC/USD(x)
- * and wETH/USD(x) markets. So if one chooses option two **and** needs to
- * create open orders accounts for both markets, then the transaction
- * is broken up into two (and `Provider.sendAll` is used) to prevent hitting
- * transaction size limits.
+ * and wETH/USD(x) markets. In the event both of these open orders accounts are
+ * created for the rfirst time, then the transaction is broken up into two
+ * (and `Provider.sendAll` is used) to prevent hitting transaction size limits.
  */
 export class Swap {
   /**
