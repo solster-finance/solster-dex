@@ -33,6 +33,11 @@ import SwapMarkets from './swap-markets';
 // TODO: enable once the DEX supports closing open orders accounts.
 const CLOSE_ENABLED = false;
 
+// Initialize open orders feature flag.
+//
+// TODO: enable once the DEX supports initializing open orders accounts.
+const OPEN_ENABLED = false;
+
 /**
  *
  * # Swap
@@ -152,16 +157,12 @@ export class Swap {
    * `minExchangeRate`, then the transaction will fail in an attempt to
    * prevent an undesireable outcome.
    */
-  public async swap(params: SwapParams): Promise<TransactionSignature> {
-    const [ixs, signers] = await this.swapIxs(params);
-    const tx = new Transaction();
-    tx.add(...ixs);
-    return this.program.provider.send(tx, signers, params.options);
+  public async swap(params: SwapParams): Promise<Array<TransactionSignature>> {
+    const txs = await this.swapTxs(params);
+    return this.program.provider.sendAll(txs, params.options);
   }
 
-  private async swapIxs(
-    params: SwapParams,
-  ): Promise<[TransactionInstruction[], Account[]]> {
+  private async swapTxs(params: SwapParams): Promise<Array<SendTxRequest>> {
     let {
       fromMint,
       toMint,
@@ -199,7 +200,7 @@ export class Swap {
 
     // If swapping to/from a USD(x) token, then swap directly on the market.
     if (fromMint.equals(USDC_PUBKEY) || fromMint.equals(USDT_PUBKEY)) {
-      return await this.swapDirectIxs({
+      return await this.swapDirectTxs({
         coinWallet: toWallet,
         pcWallet: fromWallet,
         baseMint: toMint,
@@ -213,7 +214,7 @@ export class Swap {
         fromOpenOrders,
       });
     } else if (toMint.equals(USDC_PUBKEY) || toMint.equals(USDT_PUBKEY)) {
-      return await this.swapDirectIxs({
+      return await this.swapDirectTxs({
         coinWallet: fromWallet,
         pcWallet: toWallet,
         baseMint: fromMint,
@@ -227,7 +228,7 @@ export class Swap {
         fromOpenOrders,
       });
     } else if (fromMarket !== undefined && toMarket === undefined) {
-      return await this.swapDirectIxs({
+      return await this.swapDirectTxs({
         coinWallet: fromWallet,
         pcWallet: toWallet,
         baseMint: fromMint,
@@ -260,7 +261,7 @@ export class Swap {
         );
       }
     }
-    return await this.swapTransitiveIxs({
+    return await this.swapTransitiveTxs({
       fromMint,
       toMint,
       fromWallet,
@@ -277,7 +278,7 @@ export class Swap {
     });
   }
 
-  private async swapDirectIxs({
+  private async swapDirectTxs({
     coinWallet,
     pcWallet,
     baseMint,
@@ -301,7 +302,7 @@ export class Swap {
     close?: boolean;
     fromMarket?: Market;
     fromOpenOrders?: PublicKey;
-  }): Promise<[TransactionInstruction[], Account[]]> {
+  }): Promise<Array<SendTxRequest>> {
     const marketAddress = fromMarket
       ? fromMarket.address
       : this.swapMarkets.getMarketAddress(quoteMint, baseMint);
@@ -335,7 +336,7 @@ export class Swap {
     }
     const needsOpenOrders = openOrders === undefined;
 
-    const ixs: TransactionInstruction[] = [];
+    const tx = new Transaction();
     const signers: Account[] = [];
 
     // Create the open orders account, if needed.
@@ -343,7 +344,7 @@ export class Swap {
       const oo = new Account();
       signers.push(oo);
       openOrders = oo.publicKey;
-      ixs.push(
+      tx.add(
         await OpenOrders.makeCreateAccountTransaction(
           this.program.provider.connection,
           marketClient.address,
@@ -353,7 +354,7 @@ export class Swap {
         ),
       );
     }
-    ixs.push(
+    tx.add(
       this.program.instruction.swap(side, amount, minExchangeRate, {
         accounts: {
           market: {
@@ -388,7 +389,7 @@ export class Swap {
     // If an account was opened for this swap, then close it in the same
     // transaction.
     if (CLOSE_ENABLED && close && needsOpenOrders) {
-      ixs.push(
+      tx.add(
         this.program.instruction.closeAccount({
           accounts: {
             openOrders,
@@ -401,10 +402,10 @@ export class Swap {
       );
     }
 
-    return [ixs, signers];
+    return [{ tx, signers }];
   }
 
-  private async swapTransitiveIxs({
+  private async swapTransitiveTxs({
     fromMint,
     toMint,
     fromWallet,
@@ -432,7 +433,7 @@ export class Swap {
     toMarket?: Market;
     fromOpenOrders?: PublicKey;
     toOpenOrders?: PublicKey;
-  }): Promise<[TransactionInstruction[], Account[]]> {
+  }): Promise<Array<SendTxRequest>> {
     // Fetch the markets, if needed.
     let fromMarketAddress: PublicKey, toMarketAddress: PublicKey;
     let fromMarketClient: Market, toMarketClient: Market;
@@ -512,8 +513,12 @@ export class Swap {
     const toNeedsOpenOrders = toOpenOrders === undefined;
 
     // Now that we have all the accounts, build the transaction.
-    const ixs: TransactionInstruction[] = [];
-    const signers: Account[] = [];
+    let openOrdersTransaction: Transaction | undefined = undefined;
+    const openOrdersSigners: Account[] = [];
+    const swapTransaction: Transaction = new Transaction();
+    const swapSigners: Account[] = [];
+    let closeTransaction: Transaction | undefined = undefined;
+    const closeSigners: Account[] = [];
 
     // Calculate the vault signers for each market.
     const [fromVaultSigner] = await getVaultOwnerAndNonce(
@@ -522,12 +527,66 @@ export class Swap {
     const [toVaultSigner] = await getVaultOwnerAndNonce(toMarketClient.address);
 
     // Add instructions to create open orders, if needed.
-    let accounts: Account[] = [];
-    if (fromNeedsOpenOrders) {
+    //
+    // If creating open orders accounts on *both* from and to markets, then
+    // split out the create open orders instructions into their own transaction.
+    if (fromNeedsOpenOrders && toNeedsOpenOrders) {
+      openOrdersTransaction = new Transaction();
+
+      const ooFrom = new Account();
+      openOrdersSigners.push(ooFrom);
+      openOrdersTransaction.add(
+        await OpenOrders.makeCreateAccountTransaction(
+          this.program.provider.connection,
+          fromMarketAddress,
+          this.program.provider.wallet.publicKey,
+          ooFrom.publicKey,
+          DEX_PID,
+        ),
+      );
+      fromOpenOrders = ooFrom.publicKey;
+
+      const ooTo = new Account();
+      openOrdersSigners.push(ooTo);
+      openOrdersTransaction.add(
+        await OpenOrders.makeCreateAccountTransaction(
+          this.program.provider.connection,
+          toMarketAddress,
+          this.program.provider.wallet.publicKey,
+          ooTo.publicKey,
+          DEX_PID,
+        ),
+      );
+      toOpenOrders = ooTo.publicKey;
+
+      if (OPEN_ENABLED) {
+        openOrdersTransaction.add(
+          this.program.instruction.initAccount({
+            accounts: {
+              openOrders: ooFrom.publicKey,
+              authority: this.program.provider.wallet.publicKey,
+              market: fromMarketAddress,
+              dexProgram: DEX_PID,
+              rent: SYSVAR_RENT_PUBKEY,
+            },
+          }),
+        );
+        openOrdersTransaction.add(
+          this.program.instruction.initAccount({
+            accounts: {
+              openOrders: ooTo.publicKey,
+              authority: this.program.provider.wallet.publicKey,
+              market: fromMarketAddress,
+              dexProgram: DEX_PID,
+              rent: SYSVAR_RENT_PUBKEY,
+            },
+          }),
+        );
+      }
+    } else if (fromNeedsOpenOrders) {
       const oo = new Account();
-      signers.push(oo);
-      accounts.push(oo);
-      ixs.push(
+      swapSigners.push(oo);
+      swapTransaction.add(
         await OpenOrders.makeCreateAccountTransaction(
           this.program.provider.connection,
           fromMarketAddress,
@@ -537,12 +596,10 @@ export class Swap {
         ),
       );
       fromOpenOrders = oo.publicKey;
-    }
-    if (toNeedsOpenOrders) {
+    } else if (toNeedsOpenOrders) {
       const oo = new Account();
-      signers.push(oo);
-      accounts.push(oo);
-      ixs.push(
+      swapSigners.push(oo);
+      swapTransaction.add(
         await OpenOrders.makeCreateAccountTransaction(
           this.program.provider.connection,
           toMarketAddress,
@@ -554,7 +611,7 @@ export class Swap {
       toOpenOrders = oo.publicKey;
     }
 
-    ixs.push(
+    swapTransaction.add(
       this.program.instruction.swapTransitive(amount, minExchangeRate, {
         accounts: {
           from: {
@@ -604,7 +661,8 @@ export class Swap {
     );
 
     if (CLOSE_ENABLED && close && fromNeedsOpenOrders) {
-      ixs.push(
+      closeTransaction = new Transaction();
+      closeTransaction.add(
         this.program.instruction.closeAccount({
           accounts: {
             openOrders: fromOpenOrders,
@@ -618,7 +676,10 @@ export class Swap {
     }
 
     if (CLOSE_ENABLED && close && toNeedsOpenOrders) {
-      ixs.push(
+      if (!closeTransaction) {
+        closeTransaction = new Transaction();
+      }
+      closeTransaction.add(
         this.program.instruction.closeAccount({
           accounts: {
             openOrders: toOpenOrders,
@@ -631,7 +692,16 @@ export class Swap {
       );
     }
 
-    return [ixs, signers];
+    const txs: Array<SendTxRequest> = [];
+    if (openOrdersTransaction !== undefined) {
+      txs.push({ tx: openOrdersTransaction, signers: openOrdersSigners });
+    }
+    txs.push({ tx: swapTransaction, signers: swapSigners });
+    if (closeTransaction !== undefined) {
+      txs.push({ tx: closeTransaction, signers: closeSigners });
+    }
+
+    return txs;
   }
 }
 
@@ -731,3 +801,4 @@ const Side = {
 };
 
 type ExchangeRate = { rate: BN; decimals: number };
+type SendTxRequest = { tx: Transaction; signers: Array<Account | undefined> };
