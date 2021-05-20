@@ -674,8 +674,8 @@ export type SwapParams = {
 
   /**
    * The minimum rate used to calculate the number of `toMint` tokens one
-	 * should receive for the swap. This is a safety mechanism to prevent one
-	 * from performing an unexpecteed trade.
+   * should receive for the swap. This is a safety mechanism to prevent one
+   * from performing an unexpecteed trade.
    *
    * If not given, then defaults to 0.05% off the **estimated** amount.
    */
