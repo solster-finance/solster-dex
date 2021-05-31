@@ -1,6 +1,6 @@
 {
   "name": "@project-serum/swap",
-  "version": "0.1.0-alpha.14",
+  "version": "0.1.0-alpha.15",
   "description": "Client for swapping on the Serum DEX",
   "license": "MIT",
   "repository": "project-serum/serum-ts",
@@ -50,7 +50,7 @@
     "bn.js": "^5.1.2"
   },
   "peerDependencies": {
-    "@project-serum/anchor": "^0.6.0-beta.2",
+    "@project-serum/anchor": "^0.7.0",
     "@solana/spl-token-registry": "^0.2.102",
     "@solana/web3.js": "^1.10.1"
   },
