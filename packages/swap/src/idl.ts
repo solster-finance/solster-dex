@@ -365,6 +365,10 @@ export const IDL: Idl = {
           {
             "name": "decimals",
             "type": "u8"
+          },
+          {
+            "name": "strict",
+            "type": "bool"
           }
         ]
       }
@@ -393,6 +397,11 @@ export const IDL: Idl = {
         },
         {
           "name": "to_amount",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "quote_amount",
           "type": "u64",
           "index": false
         },
